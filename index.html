@@ -233,6 +233,8 @@ td .c{font-size:11px;color:var(--muted)}
 .login .msg{min-height:20px;font-size:14px;color:var(--wait);font-weight:600;margin-top:12px}
 .login .row .btn{flex:1}
 .logout{margin-left:auto;background:var(--card);color:var(--muted);border-radius:999px;padding:2px 10px;font-size:12px;opacity:1}
+.logout~.logout{margin-left:0}
+#pushBtn{color:var(--accent);font-weight:600}
 </style>
 </head>
 <body>
@@ -249,7 +251,7 @@ td .c{font-size:11px;color:var(--muted)}
 
 <div id="app" hidden>
 <header class="top gut"><div class="col">
-  <div class="bar"><span class="ver" id="ver">v3.0</span><button class="logout" id="logout">ออกจากระบบ</button></div>
+  <div class="bar"><span class="ver" id="ver">v3.1</span><button class="logout" id="pushBtn" hidden>เปิดแจ้งเตือน</button><button class="logout" id="logout">ออกจากระบบ</button></div>
   <div class="hi"><div class="tx" id="dateLine"></div><div class="ring" id="ring"></div></div>
   <div class="stats" id="ctrs"></div>
   <div class="rline" id="prog"></div>
@@ -276,7 +278,7 @@ td .c{font-size:11px;color:var(--muted)}
 <script>
 (function(){
 "use strict";
-var VER="v3.0";
+var VER="v3.1";
 var SB_URL="https://zcmflqgykvyiqpejccyr.supabase.co";
 var SB_KEY="sb_publishable_Vot1OnxQQNADGmX70ItuMg_dEPjfBzi";
 document.getElementById("ver").textContent=VER;
@@ -742,6 +744,31 @@ function evSet(v){
   v.appendChild(el("div",{class:"note",text:"ซ่อน = ไม่โชว์ในใบใหม่ แต่คะแนนเก่ายังอยู่ครบ"}));
 }
 
+/* ---------- แจ้งเตือนบนมือถือ (Web Push) ---------- */
+function u8(b){b=b.replace(/-/g,"+").replace(/_/g,"/");while(b.length%4)b+="=";var s=atob(b),o=new Uint8Array(s.length);for(var i=0;i<s.length;i++)o[i]=s.charCodeAt(i);return o}
+function pushSupported(){return "serviceWorker" in navigator&&"PushManager" in window&&"Notification" in window}
+function savePush(sub){var j=sub.toJSON();return q(sb.from("push_subs").upsert({endpoint:j.endpoint,user_id:S.uid,p256dh:j.keys.p256dh,auth:j.keys.auth}))}
+function pushInit(){
+  var b=$("pushBtn");if(!pushSupported()){b.hidden=true;return}
+  navigator.serviceWorker.ready.then(function(reg){return reg.pushManager.getSubscription()}).then(function(sub){
+    if(sub&&Notification.permission==="granted"){b.hidden=true;savePush(sub).catch(function(){})}else b.hidden=false;
+  }).catch(function(){b.hidden=true});
+}
+function pushOn(){
+  var b=$("pushBtn");b.disabled=true;
+  Notification.requestPermission().then(function(p){
+    if(p!=="granted")throw {message:"denied"};
+    return q(sb.rpc("push_public_key"));
+  }).then(function(key){
+    if(!key)throw {message:"nokey"};
+    return navigator.serviceWorker.ready.then(function(reg){return reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(key)})});
+  }).then(function(sub){return savePush(sub)}).then(function(){
+    b.hidden=true;toast("เปิดแจ้งเตือนแล้ว กำลังส่งทดสอบ…");return q(sb.rpc("push_test"));
+  }).catch(function(e){var m=e&&e.message;
+    toast(m==="denied"?"ไม่ได้อนุญาตแจ้งเตือน เปิดได้ที่ ตั้งค่า › การแจ้งเตือน":m==="nokey"?"ระบบแจ้งเตือนยังไม่พร้อม ลองใหม่ภายหลัง":errText(e));
+  }).then(function(){b.disabled=false});
+}
+
 /* ---------- ล็อกอิน ---------- */
 function showLogin(msg){
   $("app").hidden=true;$("login").hidden=false;$("lMsg").textContent=msg||"";
@@ -762,7 +789,7 @@ function start(session){
   $("login").hidden=true;$("app").hidden=false;
   $("vToday").innerHTML="";$("vToday").appendChild(el("div",{class:"empty",text:"กำลังโหลดงาน…"}));
   return q(sb.rpc("is_owner")).then(function(v){S.owner=v===true},function(){S.owner=false}).then(function(){
-    $("nEval").hidden=!S.owner;return loadAll()}).then(function(){render()}).catch(function(e){toast(errText(e));render()});
+    $("nEval").hidden=!S.owner;return loadAll()}).then(function(){render();pushInit()}).catch(function(e){toast(errText(e));render()});
 }
 
 /* ---------- เปลี่ยนหน้า ---------- */
@@ -778,6 +805,7 @@ function render(){renderHead();if(S.view==="today")renderToday();else if(S.view=
 function boot(){
   $("nToday").onclick=function(){go("today")};$("nRoutine").onclick=function(){go("routine")};$("nEval").onclick=function(){go("eval")};
   $("fab").onclick=function(){openTask(null)};
+  $("pushBtn").onclick=pushOn;
   $("lIn").onclick=function(){doAuth("in")};$("lUp").onclick=function(){doAuth("up")};
   $("lPass").addEventListener("keydown",function(e){if(e.key==="Enter")doAuth("in")});
   $("logout").onclick=function(){if(!$("logout").dataset.arm){$("logout").dataset.arm="1";$("logout").textContent="กดอีกครั้งเพื่อออก";return}
